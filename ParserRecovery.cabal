@@ -1,0 +1,62 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.33.0.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: e7f3ea8207b9dff26e1efeec878b9fae6c02510e8035c18e8c4cfaa3c8c73513
+
+name:           ParserRecovery
+version:        0.1.0.0
+description:    Investigation of error-recovery in monadic parser combinator libraries
+homepage:       https://github.com/mattysmith22/ParserRecovery#readme
+bug-reports:    https://github.com/mattysmith22/ParserRecovery/issues
+author:         Matthew Smith
+maintainer:     mattysmith22@googlemail.com
+copyright:      2020 Matthew Smith
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+extra-source-files:
+    README.md
+    ChangeLog.md
+
+source-repository head
+  type: git
+  location: https://github.com/mattysmith22/ParserRecovery
+
+library
+  exposed-modules:
+      Lib
+  other-modules:
+      Paths_ParserRecovery
+  hs-source-dirs:
+      src
+  build-depends:
+      base >=4.7 && <5
+  default-language: Haskell2010
+
+executable ParserRecovery-exe
+  main-is: Main.hs
+  other-modules:
+      Paths_ParserRecovery
+  hs-source-dirs:
+      app
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      ParserRecovery
+    , base >=4.7 && <5
+  default-language: Haskell2010
+
+test-suite ParserRecovery-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      Paths_ParserRecovery
+  hs-source-dirs:
+      test
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      ParserRecovery
+    , base >=4.7 && <5
+  default-language: Haskell2010
