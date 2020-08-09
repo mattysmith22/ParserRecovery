@@ -21,4 +21,4 @@ Generally, the most common versions of that would require either hand-coding the
 
 1) Allow for parsers to recover (at a minimum using the panic-mode error recovery method) from errors that occur.
 2) Allow for multiple errors to be returned from a parser
-3) Allow for error codes to be descriptive (string describing errors, location etc.)
+3) Allow for error messages to be descriptive (string describing errors, location of error etc.)
