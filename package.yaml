@@ -21,6 +21,7 @@ description:         Investigation of error-recovery in monadic parser combinato
 
 dependencies:
 - base >= 4.7 && < 5
+- mtl == 2.2.2
 
 library:
   source-dirs: src
