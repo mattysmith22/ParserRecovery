@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 911442deac711ad412a5feb5d91f2dca81e0fdcb8425904b74f51ebebcadb8bb
+-- hash: bdf259f61caef6c7b8db6015b3667514191e847de934eaf3b1a269beb7ab8c33
 
 name:           ParserRecovery
 version:        0.1.0.0
@@ -35,6 +35,8 @@ library
       src
   build-depends:
       base >=4.7 && <5
+    , containers
+    , megaparsec
     , mtl ==2.2.2
   default-language: Haskell2010
 
@@ -48,6 +50,8 @@ executable ParserRecovery-exe
   build-depends:
       ParserRecovery
     , base >=4.7 && <5
+    , containers
+    , megaparsec
     , mtl ==2.2.2
   default-language: Haskell2010
 
@@ -62,5 +66,7 @@ test-suite ParserRecovery-test
   build-depends:
       ParserRecovery
     , base >=4.7 && <5
+    , containers
+    , megaparsec
     , mtl ==2.2.2
   default-language: Haskell2010

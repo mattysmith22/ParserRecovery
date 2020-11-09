@@ -1,129 +1,77 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
-module Text.ParserRecovery (
+{-|
+Module      : Text.pRecovery
+Description : Monadic combinator implementation that allows for recovery
+Copyright   : (c) Matthew Smith, 2020
+License     : BSD
+Maintainer  : mattysmith22@googlemail.com
+Stability   : experimental
+Portability : POSIX
 
-) where
+Monadic combinator implementation that allows for recovery
+-}
+module Text.ParserRecovery (endRecover, midRecover, endRecoverMaybe, betweenSync, endBySync, sepBy1Sync, sepBySync, findSyncToken) where
 
-import           Control.Applicative
-import           Control.Monad.Except
-import           Control.Monad.State.Lazy
+import           Data.Maybe
+import qualified Data.Set        as Set
+import           Text.Megaparsec
 
-type TextLocation = (Int, Int)
+findSyncToken :: (Ord e, Stream s, MonadParsec e s p) => p sync -> p Bool
+findSyncToken pSync = do
+    res <- observing pSync
+    case res of
+        (Right _) -> return True
+        (Left _) -> do
+            res' <- observing anyTok
+            case res' of
+                (Right _) -> findSyncToken pSync
+                (Left _)  -> return False
+    where
+        anyTok = token (const $ Just ()) Set.empty
 
-type ParseError = (ErrorMessage, TextLocation)
+endRecover :: (Eq s, Ord e, Stream s, MonadParsec e s p) => p a -> p sync -> a -> p a
+endRecover pX pSync def = do
+    stateBeforeParse <- getParserState
+    withRecovery (recoveryFunc stateBeforeParse) (pX <* pSync)
+    where
+        recoveryFunc stateBeforeParse err = do
+            stateAfterParse <- getParserState
+            if stateBeforeParse == stateAfterParse then --TODO: try to find a way to check if tokens consumed that is more efficient.
+                parseError err
+            else do
+                foundSync <- findSyncToken pSync
+                if foundSync then
+                    return def
+                else
+                    parseError err
 
-data ParserResult a =
-    Succ a ParserState
-    | Soft [ParseError] ParserState
-    | Hard [ParseError]
+midRecover :: (Eq s, Ord e, Stream s, MonadParsec e s p) => p a -> p sync -> p a
+midRecover pX pSync = do
+    stateBeforeParse <- getParserState
+    withRecovery (recoveryFunc stateBeforeParse) pX
+    where
+        recoveryFunc stateBeforeParse err = do
+            stateAfterParse <- getParserState
+            if stateBeforeParse == stateAfterParse then
+                parseError err
+            else do
+                foundSync <- findSyncToken pSync
+                if foundSync then
+                    midRecover pX pSync
+                else
+                    parseError err
 
-instance Functor ParserResult where
-    fmap f (Succ a s) = Succ (f a) s
-    fmap _ (Soft e s) = Soft e s
-    fmap _ (Hard e)   = Hard e
+endRecoverMaybe :: (Eq s, Ord e, Stream s, MonadParsec e s p) => p a -> p sync -> p (Maybe a)
+endRecoverMaybe pX pSync = endRecover (Just <$> pX) pSync Nothing
 
-type ParserState = (String, TextLocation) -- Custom user state
+betweenSync :: (Eq s, Ord e, Stream s, MonadParsec e s p) => p open -> p close -> p a -> p (Maybe a)
+betweenSync pOpen pClose pX = pOpen *> endRecoverMaybe pX pClose
 
-newtype Parser a = P (ParserState -> ParserResult a)
-newtype ErrorMessage = Err String
+endBySync :: (Eq s, Ord e, Stream s, MonadParsec e s p) => p a -> p sep -> p [a]
+endBySync pX pSep = catMaybes <$> many (endRecoverMaybe pX pSep)
 
-parse :: Parser a -> ParserState -> ParserResult a
-parse (P p) = p
+sepBy1Sync :: (Eq s, Ord e, Stream s, MonadParsec e s p) => p a -> p sync -> p [a]
+sepBy1Sync pX pSep = (:) <$> midRecover pX pSep <*> many (pSep *> midRecover pX pSep)
 
-instance Functor Parser where
-    -- fmap :: (a -> b) -> Parser a -> Parser b
-    fmap f p = P (fmap f . parse p)
-
-instance Applicative Parser where
-    -- <*> :: Parser (a -> b) -> Parser a -> Parser b
-    pf <*> pa = P (\state ->
-        case parse pf state of
-            Succ resf statef ->
-                case parse pa statef of
-                    Succ resa statea -> Succ (resf resa) statea
-                    Soft err statea  -> Soft err statea
-                    Hard err         -> Hard err
-            Soft errf statef ->
-                case parse pa statef of
-                    Succ _ statea    -> Soft errf statef
-                    Soft erra statea -> Soft (errf ++ erra) statea
-                    Hard erra        -> Hard (errf ++ erra)
-            Hard errf ->
-                Hard errf)
-
-    -- pure :: a -> Parser a
-    pure x = P (Succ x)
-
-instance Monad Parser where
-    -- (>>=) :: Parser a -> (a -> Parser b) -> Parser b
-    pa >>= fpb = P (\state -> case parse pa state of
-        Succ resa statea -> parse (fpb resa) statea
-        Soft erra statea -> Soft erra statea
-        Hard erra        -> Hard erra)
-
-    -- (>>) :: Parser a -> Parser b -> Parser b
-    {-
-        This is manually defined because we can do better than the automatic implementation, as unlike in >>=
-        the second monad doesn't depend on the result of the first, meaning we can allow for soft errors to
-        continue parsing even though they don't require a result.
-    -}
-    pa >> pb = P (\state -> case parse pa state of
-        Succ resa statea -> parse pb statea
-        Soft erra statea -> case parse pb statea of
-            Succ resb stateb -> Soft erra stateb
-            Soft errb stateb -> Soft (erra ++ errb) stateb
-            Hard errb        -> Hard (erra ++ errb)
-        Hard erra -> Hard erra)
-
-instance MonadError ErrorMessage Parser where
-    -- throwError :: e -> m a
-    throwError = hard
-
-    -- catchError :: Parser a -> (String -> Parser a) -> Parser a
-    catchError pa catch = P (\state -> case parse pa state of
-        Succ resa statea   -> Succ resa statea
-        {-
-            TODO: Work out what may be a more useful implementation of this. Things to think about:
-            * How to handle if multiple errors occur, currently all but the first aren't handled
-            * Should the catch of a soft parse fail use the state before or after the soft fail?
-              Should soft failures even be caught?
-        -}
-        Soft ((err,_):_) _ -> parse (catch err) state
-        Hard ((err,_):_)   -> parse (catch err) state)
-
-instance Alternative Parser where
-    -- empty :: Parser a
-    empty = P $ const $ Hard []
-
-    -- (<|>) :: Parser a -> Parser a -> Parser a
-    pa <|> pb = P (\state -> case parse pa state of
-        Succ xa statea -> Succ xa statea
-        Soft errs statea -> case parse pb state of
-            Succ xb stateb -> Succ xb stateb
-            _              -> Soft errs statea
-        Hard errs -> case parse pb state of
-            Hard _ -> Hard errs
-            x      -> x)
-
-hard :: ErrorMessage -> Parser a
-hard e = P (\(_, pos) -> Hard [(e, pos)])
-
-soft :: ErrorMessage -> Parser a
-soft e = P (\(str, pos) -> Soft [(e, pos)] (str, pos))
-
-peek :: Parser Char
-peek = P (\(str, pos) -> case str of
-    ""     -> Hard [(Err "Cannot parse past eof", pos)]
-    (x:xs) -> Succ x (x:xs,pos))
-
-eof :: Parser Bool
-eof = P (\(str, pos) -> case str of
-    "" -> Succ True (str, pos)
-    _  -> Succ False (str, pos))
-
-next :: Parser ()
-next = P (\(str, (line, col)) -> case str of
-    "" -> Hard [(Err "Cannot parse past eof", (line, col))]
-    (x:xs) -> if x == '\n' then
-            Succ () (xs, (line+1, 0))
-        else
-            Succ () (xs, (line, col+1)))
+sepBySync :: (Eq s, Ord e, Stream s, MonadParsec e s p) => p a -> p sync -> p [a]
+sepBySync pX pSep = sepBy1Sync pX pSep <|> pure [] --This requires only doing recovery when info has been consumed
