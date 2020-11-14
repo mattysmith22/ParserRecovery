@@ -1,2 +1,8 @@
+import           Test.Hspec
+import qualified Text.ParserRecoverySpec
+
 main :: IO ()
-main = putStrLn "Test suite not yet implemented"
+main = hspec $ do
+    describe "Text" $ do
+        describe "ParserRecovery" $ do
+            Text.ParserRecoverySpec.spec
