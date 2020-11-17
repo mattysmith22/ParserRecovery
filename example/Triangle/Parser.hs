@@ -1,9 +1,12 @@
 module Triangle.Parser (parseProgram, declaration, declarations) where
 
+import           Data.Maybe
 import           Data.Void
+import           Expr.AST
 import qualified Expr.Frontend        as Expr
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
+import           Text.ParserRecovery
 import           Triangle.AST
 
 type Parser a = Parsec Void String a
@@ -58,14 +61,14 @@ declaration = Declaration <$ tokVar <*> tokIdent <*> initValue
         initValue = (Just <$ tokEql <*> Expr.expr) <|> return Nothing
 
 declarations :: Parser [Declaration]
-declarations = sepBy1 declaration tokSemicolon
+declarations = sepBy1Sync declaration tokSemicolon
 command :: Parser Command
 command =
         (If <$ tokIf <*> Expr.expr <* tokThen <*> command <* tokElse <*> command)
     <|> (While <$ tokWhile <*> Expr.expr <* tokDo <*> command)
-    <|> (GetInt <$ tokGetInt <*> between tokOpenP tokCloseP Expr.ident)
-    <|> (PrintInt <$ tokPrintInt <*> between tokOpenP tokCloseP Expr.expr)
-    <|> (Block <$> between tokBegin tokEnd commands)
+    <|> (GetInt <$ tokGetInt <*> ((fromMaybe "") <$> betweenSync tokOpenP tokCloseP Expr.ident))
+    <|> (PrintInt <$ tokPrintInt <*> ((fromMaybe $ Var "") <$> betweenSync tokOpenP tokCloseP Expr.expr))
+    <|> (Block <$> fromMaybe [] <$> betweenSync tokBegin tokEnd commands)
     <|> (Assign <$> tokIdent <* tokEql <*> Expr.expr)
 
 commands :: Parser [Command]

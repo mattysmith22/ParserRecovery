@@ -4,6 +4,7 @@ import           System.IO
 
 import           System.Environment
 import           Text.Groom
+import           Text.Megaparsec.Error
 import           Triangle.Parser
 
 doesFileExist :: FilePath -> IO Bool
@@ -27,7 +28,7 @@ compileMt path = do
     case parseProgram expFile of
         Left err -> do
             putStrLn "Error while parsing:"
-            putStrLn $ groom err
+            putStrLn $ errorBundlePretty err
         Right ast -> do
             putStrLn $ groom ast
 

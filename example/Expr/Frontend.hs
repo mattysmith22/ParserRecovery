@@ -2,10 +2,12 @@
 module Expr.Frontend (parseInput, parseInt, expr, ident) where
 
 import           Data.Function
+import           Data.Maybe
 import           Data.Void
 import           Expr.AST
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
+import           Text.ParserRecovery
 
 chainl :: Parser a -> Parser (a -> a -> a) -> Parser a
 chainl pX pOp = pX >>= remain
@@ -112,7 +114,7 @@ ident = tok ((:) <$> alpha <*> many alphaNum)
         alphaNum = alpha <|> digitChar
 
 term :: Parser AST
-term = (UnOp <$> neg <*> term) <|> int  <|> literal <|> between openP closeP expr
+term = (UnOp <$> neg <*> term) <|> int  <|> literal <|> (fromMaybe (Val 0)) <$> (betweenSync openP closeP expr)
 
 expr :: Parser AST
 expr = ifExp
