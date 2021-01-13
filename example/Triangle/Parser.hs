@@ -9,7 +9,7 @@ import           Text.Megaparsec.Char
 import           Text.ParserRecovery
 import           Triangle.AST
 
-type Parser a = Parsec Void String a
+type Parser a = RecoveryParserT Void (Parsec Void String) a
 
 tok :: Parser a -> Parser a
 tok p = p <* space
@@ -75,4 +75,4 @@ commands :: Parser [Command]
 commands = sepBy command tokSemicolon
 
 parseProgram :: String -> Either (ParseErrorBundle String Void) Program
-parseProgram = parse (space >> program) ""
+parseProgram = parse (runRecoveryParser (space >> program)) ""

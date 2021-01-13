@@ -18,7 +18,7 @@ chainl pX pOp = pX >>= remain
                 remain (op l r))
             <|> return l
 
-type Parser a = Parsec Void String a
+type Parser a = RecoveryParserT Void (Parsec Void String) a
 
 -- Removes spaces after parsed token.
 tok :: Parser a -> Parser a
@@ -120,7 +120,7 @@ expr :: Parser AST
 expr = ifExp
 
 parseInput :: String -> Either (ParseErrorBundle String Void) AST
-parseInput = parse (space >> expr) ""
+parseInput = parse (runRecoveryParser (space >> expr)) ""
 
 parseInt :: String -> Either (ParseErrorBundle String Void) Int
-parseInt = parse (space >> ((read::String -> Int) <$> tok (some digitChar))) ""
+parseInt = parse (runRecoveryParser (space >> ((read::String -> Int) <$> tok (some digitChar)))) ""
