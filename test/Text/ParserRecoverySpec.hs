@@ -1,5 +1,6 @@
 module Text.ParserRecoverySpec (spec) where
 
+import           Data.Functor.Identity
 import qualified Data.List.NonEmpty    as NE
 import           Data.Maybe
 import qualified Data.Set              as Set
@@ -13,31 +14,31 @@ import           Text.ParserRecovery
 -- As a standard for all these tests, `s` is a synchronisation token and "ab" is a valide parse. 'a' and 'b' are parsed separately to allow for the differentiation between consuming input and not.
 -- Since the parse error is only deferred, and still returns a failure eventually when evaluated with `runParser`, to check that a parser has recovered we check that a parser afterwards runs (by seeing it consumes input)
 
-runParserRec p = runParser (runRecoveryParser p)
-runParserRec' p = runParser' (runRecoveryParser p)
+runParserRec p f s = runIdentity $ runRecoveryParser p f s
+runParserRec' p s = runIdentity $ runRecoveryParser' p s
 
-pVal :: RecoveryParserT Void (Parsec Void String) Char
+pVal :: RecoveryParserT Void String Identity Char
 pVal = char 'a' *> char 'b'
 
-pSync :: RecoveryParserT Void (Parsec Void String) Char
+pSync :: RecoveryParserT Void String Identity Char
 pSync = char 's'
 
-pAlt :: RecoveryParserT Void (Parsec Void String) [Char]
+pAlt :: RecoveryParserT Void String Identity [Char]
 pAlt = (:[]) <$> char 'c'
 
-pAltM :: RecoveryParserT Void (Parsec Void String) [Maybe Char]
+pAltM :: RecoveryParserT Void String Identity [Maybe Char]
 pAltM = (:[]) . Just <$> char 'c'
 
-pOpen :: RecoveryParserT Void (Parsec Void String) Char
+pOpen :: RecoveryParserT Void String Identity Char
 pOpen = char '('
 
-pClose :: RecoveryParserT Void (Parsec Void String) Char
+pClose :: RecoveryParserT Void String Identity Char
 pClose = char ')'
 
-pOpen' :: RecoveryParserT Void (Parsec Void String) Char
+pOpen' :: RecoveryParserT Void String Identity Char
 pOpen' = char '['
 
-pClose' :: RecoveryParserT Void (Parsec Void String) Char
+pClose' :: RecoveryParserT Void String Identity Char
 pClose' = char ']'
 
 endRecoverSpec :: Spec

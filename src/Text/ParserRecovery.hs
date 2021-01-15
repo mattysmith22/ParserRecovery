@@ -14,44 +14,45 @@ Portability : POSIX
 
 Monadic combinator implementation that allows for recovery
 -}
-module Text.ParserRecovery (ConsumeRecoverOpt(..), RecoveryParserT, endRecover, midRecover, endRecoverMaybe, betweenSync, endBy1Sync, endBySync, sepBy1Sync, sepBySync, findSyncToken, runRecoveryParser) where
+module Text.ParserRecovery (ConsumeRecoverOpt(..), RecoveryParserT, endRecover, midRecover, endRecoverMaybe, betweenSync, endBy1Sync, endBySync, sepBy1Sync, sepBySync, findSyncToken, runRecoveryParser, runRecoveryParser') where
 
-import           Control.Applicative  (Alternative)
+import           Control.Applicative      (Alternative)
 import           Control.Monad.Reader
 import           Data.Either
 import           Debug.Trace
 import           Text.Megaparsec
+import           Text.Megaparsec.Internal
 
 data ConsumeRecoverOpt = ForceRecovery | AlternativeSafe
     deriving Eq
-type RecoverEnv e m = [RecoveryParserT e m ()]
+type RecoverEnv e s m = [RecoveryParserT e s m ()]
 
-newtype RecoveryParserT e m a = RecoveryParserT {
-    unRecoveryParser :: ReaderT (RecoverEnv e m) m a
+newtype RecoveryParserT e s m a = RecoveryParserT {
+    unRecoveryParser :: ParsecT e s (ReaderT (RecoverEnv e s m) m) a
 }
 
-instance MonadParsec e s m => Functor (RecoveryParserT e m) where
+instance (Ord e, Stream s, Monad m) => Functor (RecoveryParserT e s m) where
     fmap f x = RecoveryParserT (f <$> unRecoveryParser x)
 
-instance MonadParsec e s m => Applicative (RecoveryParserT e m) where
+instance (Ord e, Stream s, Monad m) => Applicative (RecoveryParserT e s m) where
     l <*> r = RecoveryParserT (unRecoveryParser l <*> unRecoveryParser r)
     pure x = RecoveryParserT $ pure x
 
-instance MonadParsec e s m => Monad (RecoveryParserT e m) where
+instance (Ord e, Stream s, Monad m) => Monad (RecoveryParserT e s m) where
     x >>= f = RecoveryParserT (unRecoveryParser x >>= (unRecoveryParser . f))
 
-instance MonadParsec e s m => Alternative (RecoveryParserT e m) where
+instance (Ord e, Stream s, Monad m) => Alternative (RecoveryParserT e s m) where
     l <|> r = RecoveryParserT (unRecoveryParser l <|> unRecoveryParser r)
     empty = RecoveryParserT empty
 
-instance MonadParsec e s m => MonadPlus (RecoveryParserT e m) where
+instance (Ord e, Stream s, Monad m) => MonadPlus (RecoveryParserT e s m) where
    mzero = RecoveryParserT mzero
    mplus l r = RecoveryParserT $ mplus (unRecoveryParser l) (unRecoveryParser r)
 
-instance (MonadFail m, MonadParsec e s m) => MonadFail (RecoveryParserT e m) where
+instance (Ord e, Stream s, Monad m) => MonadFail (RecoveryParserT e s m) where
     fail s = RecoveryParserT $ fail s
 
-instance MonadParsec e s m => MonadParsec e s (RecoveryParserT e m) where
+instance (Ord e, Stream s, Monad m) => MonadParsec e s (RecoveryParserT e s m) where
     parseError = RecoveryParserT . parseError
     label str pX = RecoveryParserT $ label str $ unRecoveryParser pX
     hidden pX = RecoveryParserT $ hidden $ unRecoveryParser pX
@@ -68,12 +69,6 @@ instance MonadParsec e s m => MonadParsec e s (RecoveryParserT e m) where
     takeP n c = RecoveryParserT $ takeP n c
     getParserState = RecoveryParserT getParserState
     updateParserState f = RecoveryParserT $ updateParserState f
-
-instance MonadParsec e s m => MonadReader (RecoverEnv e m) (RecoveryParserT e m) where
-    ask = RecoveryParserT ask
-    local f pX = RecoveryParserT $ local f $ unRecoveryParser pX
-    reader f = RecoveryParserT $ reader f
-
 class MonadParsec e s m => MonadRecover e s m where
     -- | Parses the first parser, and then the second synchronisation parser. If the first parser fails to parse, tokens from the input stream will be dropped until second parser succeeds.
     -- | ConsumeRecoverOpt can be used to specify whether if, upon failure when no tokens have been consumed, the parser should try and recover. If it is being used within an Alternative, it should not as otherwise it will not try other alternates, and instead try to force usage of the given one.
@@ -83,55 +78,72 @@ class MonadParsec e s m => MonadRecover e s m where
     -- | ConsumeRecoverOpt can be used to specify whether if, upon failure when no tokens have been consumed, the parser should try and recover. If it is being used within an Alternative, it should not as otherwise it will not try other alternates, and instead try to force usage of the given one.
     midRecover :: ConsumeRecoverOpt -> m a -> m sync -> m a
 
-runRecoveryParser :: MonadParsec e s m => RecoveryParserT e m a -> m a
-runRecoveryParser pX = runReaderT (unRecoveryParser pX) []
+runRecoveryParser :: Monad m => RecoveryParserT e s m a -> String -> s -> m (Either (ParseErrorBundle s e) a)
+runRecoveryParser pX f s= runReaderT (runParserT (unRecoveryParser pX) f s) []
+
+runRecoveryParser' :: Monad m => RecoveryParserT e s m a -> State s e -> m (State s e, Either (ParseErrorBundle s e) a)
+runRecoveryParser' pX s = runReaderT (runParserT' (unRecoveryParser pX) s) []
 
 -- | Searches for the given synchronisation token. If it finds the token somewhere in the input stream then it will return True, and drop until after the found token. If it doesn't exist, it will return false at the point it finished searching.
-findSyncToken :: MonadParsec e s m
-    => RecoveryParserT e m (Maybe Int)
-findSyncToken = do
+findSyncToken :: (Ord e, Stream s, Monad m) => RecoveryParserT e s m (Maybe Int)
+findSyncToken = RecoveryParserT $ do
     syncToks <- ask
-    res <- choice (zipWith (<$) (fmap Just [0..]) (fmap lookAhead $ syncToks) ++ [anySingle *> findSyncToken, pure Nothing])
-    return res
+    choice (zipWith (<$) (fmap Just [0..]) (unRecoveryParser . lookAhead <$> syncToks) ++ [anySingle *> unRecoveryParser findSyncToken, pure Nothing])
 
-instance (Eq s, Ord e, MonadParsec e s m) => MonadRecover e s (RecoveryParserT e m) where
-    endRecover consumeOpt pX pSync def = do
-        stateBeforeParse <- getParserState
-        local (void pSync:) $
-            withRecovery (recoveryFunc stateBeforeParse) (pX <* pSync)
-        where
-            recoveryFunc stateBeforeParse err = do
-                stateAfterParse <- getParserState
-                if stateBeforeParse == stateAfterParse && consumeOpt == AlternativeSafe then --TODO: try to find a way to check if tokens consumed that is more efficient.
-                    parseError err
-                else do
-                    foundSync <- findSyncToken
-                    case foundSync of
-                        Nothing -> parseError err
-                        Just 0 -> do
-                            registerParseError err
-                            def <$ pSync
-                        Just x -> parseError err
 
-    midRecover consumeOpt pX pSync = do
-        stateBeforeParse <- getParserState
+withRecovery' :: Stream s
+    => (ParseError s e -> ParsecT e s m a)
+    -> (ParseError s e -> ParsecT e s m a)
+    -> ParsecT e s m a
+    -> ParsecT e s m a
+withRecovery' cRecF eRecF p = ParsecT $ \s cok cerr eok eerr ->
+    let mcerr err ms =
+            let rcok x s' _ = cok x s' mempty
+                rcerr _ _ = cerr err ms
+                reok x s' _ = eok x s' (toHints (stateOffset  s') err)
+                reerr _ _ = cerr err ms
+            in unParser (cRecF err) ms rcok rcerr reok reerr
+        meerr err ms =
+            let rcok x s' _ = cok x s' (toHints (stateOffset s') err)
+                rcerr _ _ = eerr err ms
+                reok x s' _ = eok x s' (toHints (stateOffset s') err)
+                reerr _ _ = eerr err ms
+            in unParser (eRecF err) ms rcok rcerr reok reerr
+    in unParser p s cok mcerr eok meerr
+
+instance (Eq s, Ord e, Monad m, Stream s) => MonadRecover e s (RecoveryParserT e s m) where
+    endRecover consumeOpt pX pSync def = RecoveryParserT $ do
         local (void pSync:) $
-            withRecovery (recoveryFunc stateBeforeParse) pX
+            withRecovery' recoveryFunc eRecoveryFunc (unRecoveryParser pX <* unRecoveryParser pSync)
         where
-            recoveryFunc stateBeforeParse err = do
-                stateAfterParse <- getParserState
-                if stateBeforeParse == stateAfterParse && consumeOpt == AlternativeSafe then
-                    parseError err
-                else do
-                    foundSync <- findSyncToken
-                    case foundSync of
-                        Nothing  -> parseError err
-                        Just 0 -> do
-                            registerParseError err
-                            pSync
-                            stateBeforeParse <- getParserState
-                            withRecovery (recoveryFunc stateBeforeParse) pX
-                        Just _ -> parseError err
+            eRecoveryFunc = case consumeOpt of
+                AlternativeSafe -> parseError
+                ForceRecovery   -> recoveryFunc
+            recoveryFunc err = do
+                foundSync <- unRecoveryParser findSyncToken
+                case foundSync of
+                    Nothing -> parseError err
+                    Just 0 -> do
+                        registerParseError err
+                        def <$ unRecoveryParser pSync
+                    Just _ -> parseError err
+
+    midRecover consumeOpt pX pSync = RecoveryParserT $ do
+        local (void pSync:) $
+            withRecovery' recoveryFunc eRecoveryFunc (unRecoveryParser pX)
+        where
+            eRecoveryFunc = case consumeOpt of
+                AlternativeSafe -> parseError
+                ForceRecovery   -> recoveryFunc
+            recoveryFunc err = do
+                foundSync <- unRecoveryParser findSyncToken
+                case foundSync of
+                    Nothing  -> parseError err
+                    Just 0 -> do
+                        registerParseError err
+                        unRecoveryParser pSync
+                        withRecovery' eRecoveryFunc recoveryFunc (unRecoveryParser pX)
+                    Just _ -> parseError err
 
 -- | Parses the first parser. If the first parser fails to parse, tokens from the input stream will be dropped until second parser succeeds, and then the first parser will be parsed again.
 -- | ConsumeRecoverOpt can be used to specify whether if, upon failure when no tokens have been consumed, the parser should try and recover. If it is being used within an Alternative, it should not as otherwise it will not try other alternates, and instead try to force usage of the given one.

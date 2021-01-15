@@ -1,15 +1,16 @@
 module Triangle.Parser (parseProgram, declaration, declarations) where
 
+import           Data.Functor.Identity
 import           Data.Maybe
 import           Data.Void
 import           Expr.AST
-import qualified Expr.Frontend        as Expr
+import qualified Expr.Frontend         as Expr
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
 import           Text.ParserRecovery
 import           Triangle.AST
 
-type Parser a = RecoveryParserT Void (Parsec Void String) a
+type Parser a = RecoveryParserT Void String Identity a
 
 tok :: Parser a -> Parser a
 tok p = p <* space
@@ -75,4 +76,4 @@ commands :: Parser [Command]
 commands = sepBy command tokSemicolon
 
 parseProgram :: String -> Either (ParseErrorBundle String Void) Program
-parseProgram = parse (runRecoveryParser (space >> program)) ""
+parseProgram s = runIdentity $ runRecoveryParser (space >> program) "" s

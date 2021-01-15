@@ -1,7 +1,8 @@
 {-# LANGUAGE TypeFamilies #-}
-module Expr.Frontend (parseInput, parseInt, expr, ident) where
+module Expr.Frontend (expr, ident) where
 
 import           Data.Function
+import           Data.Functor.Identity
 import           Data.Maybe
 import           Data.Void
 import           Expr.AST
@@ -18,7 +19,7 @@ chainl pX pOp = pX >>= remain
                 remain (op l r))
             <|> return l
 
-type Parser a = RecoveryParserT Void (Parsec Void String) a
+type Parser a = RecoveryParserT Void String Identity a
 
 -- Removes spaces after parsed token.
 tok :: Parser a -> Parser a
@@ -118,9 +119,3 @@ term = (UnOp <$> neg <*> term) <|> int  <|> literal <|> (fromMaybe (Val 0)) <$> 
 
 expr :: Parser AST
 expr = ifExp
-
-parseInput :: String -> Either (ParseErrorBundle String Void) AST
-parseInput = parse (runRecoveryParser (space >> expr)) ""
-
-parseInt :: String -> Either (ParseErrorBundle String Void) Int
-parseInt = parse (runRecoveryParser (space >> ((read::String -> Int) <$> tok (some digitChar)))) ""
