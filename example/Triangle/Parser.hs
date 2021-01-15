@@ -1,79 +1,84 @@
-module Triangle.Parser (parseProgram, declaration, declarations) where
+module Triangle.Parser (parseProgram) where
 
+import           Control.Monad.Combinators.Expr
 import           Data.Functor.Identity
 import           Data.Maybe
 import           Data.Void
-import           Expr.AST
-import qualified Expr.Frontend         as Expr
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
+import qualified Text.Megaparsec.Char.Lexer     as L
 import           Text.ParserRecovery
 import           Triangle.AST
+
 
 type Parser a = RecoveryParserT Void String Identity a
 
 tok :: Parser a -> Parser a
 tok p = p <* space
 
-tokLet :: Parser String
-tokLet = tok $ string "let"
-tokIn :: Parser String
-tokIn = tok $ string "in"
-tokVar :: Parser String
-tokVar = tok $ string "var"
-tokEql :: Parser String
-tokEql = tok $ string ":="
-tokSemicolon :: Parser Char
-tokSemicolon = tok $ char ';'
-tokIf :: Parser String
-tokIf = tok $ string "if"
-tokThen :: Parser String
-tokThen = tok $ string "then"
-tokElse :: Parser String
-tokElse = tok $ string "else"
-tokWhile :: Parser String
-tokWhile = tok $ string "while"
-tokDo :: Parser String
-tokDo = tok $ string "do"
-tokGetInt :: Parser String
-tokGetInt = tok $ string "getint"
-tokPrintInt :: Parser String
-tokPrintInt = tok $ string "printint"
-tokOpenP :: Parser Char
-tokOpenP = tok $ char '('
-tokCloseP :: Parser Char
-tokCloseP = tok $ char ')'
-tokBegin :: Parser String
-tokBegin = tok $ string "begin"
-tokEnd :: Parser String
-tokEnd = tok $ string "end"
+parens :: a -> Parser a -> Parser a
+parens def p = fromMaybe def <$> betweenSync (symbol "(") (symbol ")") p
+
+ident :: Parser String
+ident = tok ((:) <$> alpha <*> many alphaNum)
+    where
+        alpha = letterChar <|> char '_'
+        alphaNum = alpha <|> digitChar
+
+term :: Parser AST
+term = tok (Val <$> L.decimal)  <|> (Var <$> ident) <|> parens (Val 0) expr
+
+symbol :: String -> Parser String
+symbol = L.symbol space
+
+expr :: Parser AST
+expr = makeExprParser term opers
+    where
+        opers =[
+            [Prefix (UnOp <$> unaryTok)]
+            ,[InfixL (BinOp <$> mulDivTok)]
+            ,[InfixL (BinOp <$> addSubTok)]
+            ,[InfixL (BinOp <$> compareTok)]
+            ,[InfixL (BinOp <$> andTok)]
+            ,[InfixL (BinOp <$> orTok)]
+            ,[TernR $ (Cond <$ symbol ":") <$ symbol "?"]
+            ]
+        unaryTok = (Not <$ symbol "!") <|> (Neg <$ symbol "-")
+        addSubTok = (Add <$ tok (char '+')) <|> (Sub <$ tok (char '-'))
+        mulDivTok = (Mul <$ tok (char '*')) <|> (Div <$ tok (char '/'))
+        andTok = And <$ symbol "&&"
+        orTok = Or <$ symbol "||"
+        compareTok = (Eq <$ symbol "==") <|> (Neq <$ symbol "!=")
+            <|> (Le <$ symbol "<=") <|> (Lt <$ symbol "<")
+            <|> (Ge <$ symbol ">=") <|> (Gt <$ symbol ">")
 
 tokIdent :: Parser String
 tokIdent = do
-    idnt <- Expr.ident
+    idnt <- ident
     if idnt == "end" then fail "" else return idnt
 
 program :: Parser Program
-program = Program <$ tokLet <*> declarations <* tokIn <*> command
+program = Program <$ symbol "let" <*> declarations <* symbol "in" <*> command
 
 declaration :: Parser Declaration
-declaration = Declaration <$ tokVar <*> tokIdent <*> initValue
+declaration = Declaration <$ symbol "var" <*> tokIdent <*> initValue
     where
-        initValue = (Just <$ tokEql <*> Expr.expr) <|> return Nothing
+        initValue = (Just <$ symbol ":=" <*> expr) <|> return Nothing
 
 declarations :: Parser [Declaration]
-declarations = sepBy1Sync declaration tokSemicolon
+declarations = sepBySync declaration (symbol ";")
+
 command :: Parser Command
 command =
-        (If <$ tokIf <*> Expr.expr <* tokThen <*> command <* tokElse <*> command)
-    <|> (While <$ tokWhile <*> Expr.expr <* tokDo <*> command)
-    <|> (GetInt <$ tokGetInt <*> ((fromMaybe "") <$> betweenSync tokOpenP tokCloseP Expr.ident))
-    <|> (PrintInt <$ tokPrintInt <*> ((fromMaybe $ Var "") <$> betweenSync tokOpenP tokCloseP Expr.expr))
-    <|> (Block <$> fromMaybe [] <$> betweenSync tokBegin tokEnd commands)
-    <|> (Assign <$> tokIdent <* tokEql <*> Expr.expr)
+        (If <$ symbol "if" <*> expr <* symbol "then" <*> command <* symbol "else" <*> command)
+    <|> (While <$ symbol "while" <*> expr <* symbol "do" <*> command)
+    <|> (GetInt <$ symbol "getint" <*> parens "" ident)
+    <|> (PrintInt <$ symbol "printint" <*> parens (Var "") expr)
+    <|> (Block <$> fromMaybe [] <$> betweenSync (symbol "begin") (symbol "end") commands)
+    <|> (Assign <$> tokIdent <* symbol ":=" <*> expr)
 
 commands :: Parser [Command]
-commands = sepBy command tokSemicolon
+commands = sepBySync command (symbol ";")
 
 parseProgram :: String -> Either (ParseErrorBundle String Void) Program
 parseProgram s = runIdentity $ runRecoveryParser (space >> program) "" s

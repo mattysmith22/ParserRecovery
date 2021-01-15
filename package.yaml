@@ -27,6 +27,10 @@ dependencies:
 
 library:
   source-dirs: src
+  ghc-options:
+  - -Wall
+  - -Werror
+  - -fwarn-incomplete-uni-patterns
 
 executables:
   ParserRecovery-exe:
@@ -36,6 +40,9 @@ executables:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
+    - -Wall
+    - -Werror
+    - -fwarn-incomplete-uni-patterns
     dependencies:
     - parser-combinators
     - ParserRecovery
@@ -50,6 +57,9 @@ tests:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
+    - -Wall
+    - -Werror
+    - -fwarn-incomplete-uni-patterns
     dependencies:
     - ParserRecovery
     - hspec

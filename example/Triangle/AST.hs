@@ -1,6 +1,16 @@
-module Triangle.AST (Ident, Program(..), Declaration(..), Command(..)) where
+module Triangle.AST (Ident, Program(..), Declaration(..), Command(..), BinOp(..), UnOp(..), AST(..)) where
 
-import           Expr.AST (AST)
+data BinOp = Add | Sub | Mul | Div | Eq | Neq | Lt | Le | Gt | Ge | And | Or
+    deriving (Show, Eq)
+data UnOp = Neg | Not
+    deriving (Show, Eq)
+
+data AST = BinOp BinOp AST AST
+    | UnOp UnOp AST
+    | Val Int
+    | Var String
+    | Cond AST AST AST
+    deriving (Show, Eq)
 
 type Ident = String
 
@@ -10,8 +20,8 @@ data Program = Program {
 } deriving (Eq, Show)
 
 data Declaration = Declaration {
-    ident :: Ident,
-    value :: Maybe AST
+    dIdent :: Ident,
+    dValue :: Maybe AST
 } deriving (Eq, Show)
 
 data Command = Assign Ident AST

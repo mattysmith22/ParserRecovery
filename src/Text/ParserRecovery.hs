@@ -18,8 +18,6 @@ module Text.ParserRecovery (ConsumeRecoverOpt(..), RecoveryParserT, endRecover, 
 
 import           Control.Applicative      (Alternative)
 import           Control.Monad.Reader
-import           Data.Either
-import           Debug.Trace
 import           Text.Megaparsec
 import           Text.Megaparsec.Internal
 
@@ -88,7 +86,8 @@ runRecoveryParser' pX s = runReaderT (runParserT' (unRecoveryParser pX) s) []
 findSyncToken :: (Ord e, Stream s, Monad m) => RecoveryParserT e s m (Maybe Int)
 findSyncToken = RecoveryParserT $ do
     syncToks <- ask
-    choice (zipWith (<$) (fmap Just [0..]) (unRecoveryParser . lookAhead <$> syncToks) ++ [anySingle *> unRecoveryParser findSyncToken, pure Nothing])
+    choice (zipWith (<$) (fmap Just [0..]) (unRecoveryParser . lookAhead <$> syncToks) 
+        ++ [anySingle *> unRecoveryParser findSyncToken, pure Nothing])
 
 
 withRecovery' :: Stream s
@@ -141,7 +140,7 @@ instance (Eq s, Ord e, Monad m, Stream s) => MonadRecover e s (RecoveryParserT e
                     Nothing  -> parseError err
                     Just 0 -> do
                         registerParseError err
-                        unRecoveryParser pSync
+                        _ <- unRecoveryParser pSync
                         withRecovery' eRecoveryFunc recoveryFunc (unRecoveryParser pX)
                     Just _ -> parseError err
 

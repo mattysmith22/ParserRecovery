@@ -2,7 +2,6 @@ module Text.ParserRecoverySpec (spec) where
 
 import           Data.Functor.Identity
 import qualified Data.List.NonEmpty    as NE
-import           Data.Maybe
 import qualified Data.Set              as Set
 import           Data.Void
 import           Test.Hspec
@@ -14,7 +13,10 @@ import           Text.ParserRecovery
 -- As a standard for all these tests, `s` is a synchronisation token and "ab" is a valide parse. 'a' and 'b' are parsed separately to allow for the differentiation between consuming input and not.
 -- Since the parse error is only deferred, and still returns a failure eventually when evaluated with `runParser`, to check that a parser has recovered we check that a parser afterwards runs (by seeing it consumes input)
 
+runParserRec :: RecoveryParserT e s Identity a -> String -> s -> Either (ParseErrorBundle s e) a
 runParserRec p f s = runIdentity $ runRecoveryParser p f s
+
+runParserRec' :: RecoveryParserT e s Identity a -> State s e -> (State s e, Either (ParseErrorBundle s e) a)
 runParserRec' p s = runIdentity $ runRecoveryParser' p s
 
 pVal :: RecoveryParserT Void String Identity Char
@@ -34,9 +36,6 @@ pOpen = char '('
 
 pClose :: RecoveryParserT Void String Identity Char
 pClose = char ')'
-
-pOpen' :: RecoveryParserT Void String Identity Char
-pOpen' = char '['
 
 pClose' :: RecoveryParserT Void String Identity Char
 pClose' = char ']'
@@ -163,6 +162,7 @@ sepBySyncSpec = do
         runParserRec (sepBy1Sync pVal pSync <* pAlt) "" `shouldFailOn` "absacsabce"
         runParserRec' (sepBy1Sync pVal pSync <* pAlt) (initialState "absacsabce") `failsLeaving` "e"
 
+multipleRecoverySpec :: Spec
 multipleRecoverySpec = do
     it "Should be able to handle nested recovery (endRecover)" $ do
         runParserRec' (endRecoverMaybe AlternativeSafe

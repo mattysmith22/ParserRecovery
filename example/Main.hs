@@ -17,11 +17,6 @@ doesFileExist path = do
 takeWhileEnd :: (a -> Bool) -> [a] -> [a]
 takeWhileEnd p = reverse . takeWhile p . reverse
 
-splitFile :: FilePath -> (FilePath, FilePath)
-splitFile path = (init $ reverse base, reverse ext)
-    where
-        (ext, base) = span (/= '.') $ reverse path
-
 compileMt :: FilePath -> IO ()
 compileMt path = do
     expFile <- readFile path
