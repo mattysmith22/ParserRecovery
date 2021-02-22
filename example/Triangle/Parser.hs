@@ -11,27 +11,27 @@ import           Text.ParserRecovery
 import           Triangle.AST
 
 
-type Parser a = RecoveryParserT Void String Identity a
+type Parser c a = RecoveryParserT c Void String Identity a
 
-tok :: Parser a -> Parser a
+tok :: Parser c a -> Parser c a
 tok p = p <* space
 
-parens :: a -> Parser a -> Parser a
+parens :: a -> Parser c a -> Parser c a
 parens def p = fromMaybe def <$> betweenSync (symbol "(") (symbol ")") p
 
-ident :: Parser String
+ident :: Parser c String
 ident = tok ((:) <$> alpha <*> many alphaNum)
     where
         alpha = letterChar <|> char '_'
         alphaNum = alpha <|> digitChar
 
-term :: Parser AST
+term :: Parser c AST
 term = tok (Val <$> L.decimal)  <|> (Var <$> ident) <|> parens (Val 0) expr
 
-symbol :: String -> Parser String
+symbol :: String -> Parser c String
 symbol = L.symbol space
 
-expr :: Parser AST
+expr :: Parser c AST
 expr = makeExprParser term opers
     where
         opers =[
@@ -52,23 +52,23 @@ expr = makeExprParser term opers
             <|> (Le <$ symbol "<=") <|> (Lt <$ symbol "<")
             <|> (Ge <$ symbol ">=") <|> (Gt <$ symbol ">")
 
-tokIdent :: Parser String
+tokIdent :: Parser c String
 tokIdent = do
     idnt <- ident
     if idnt == "end" then fail "" else return idnt
 
-program :: Parser Program
+program :: Parser c Program
 program = Program <$ symbol "let" <*> declarations <* symbol "in" <*> command
 
-declaration :: Parser Declaration
+declaration :: Parser c Declaration
 declaration = Declaration <$ symbol "var" <*> tokIdent <*> initValue
     where
         initValue = (Just <$ symbol ":=" <*> expr) <|> return Nothing
 
-declarations :: Parser [Declaration]
+declarations :: Parser c [Declaration]
 declarations = sepBySync declaration (symbol ";")
 
-command :: Parser Command
+command :: Parser c Command
 command =
         (If <$ symbol "if" <*> expr <* symbol "then" <*> command <* symbol "else" <*> command)
     <|> (While <$ symbol "while" <*> expr <* symbol "do" <*> command)
@@ -77,7 +77,7 @@ command =
     <|> (Block <$> fromMaybe [] <$> betweenSync (symbol "begin") (symbol "end") commands)
     <|> (Assign <$> tokIdent <* symbol ":=" <*> expr)
 
-commands :: Parser [Command]
+commands :: Parser c [Command]
 commands = sepBySync command (symbol ";")
 
 parseProgram :: String -> Either (ParseErrorBundle String Void) Program
