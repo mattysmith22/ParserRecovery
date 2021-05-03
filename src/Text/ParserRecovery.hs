@@ -26,34 +26,34 @@ import Unsafe.Coerce
 data ConsumeRecoverOpt = ForceRecovery | AlternativeSafe
     deriving Eq
 
-type RecoverEnv c e s m = [ParseError s e -> RecoveryParserT c e s m ()]
+type RecoverEnv e s m = [ParseError s e -> RecoveryParserT e s m ()]
 
-newtype RecoveryParserT c e s m a = RecoveryParserT {
-    unRecoveryParser :: ParsecT e s (ReaderT (RecoverEnv c e s m) m) a
+newtype RecoveryParserT e s m a = RecoveryParserT {
+    unRecoveryParser :: ParsecT e s (ReaderT (RecoverEnv e s m) m) a
 }
 
-instance (Ord e, Stream s, Monad m) => Functor (RecoveryParserT c e s m) where
+instance (Ord e, Stream s, Monad m) => Functor (RecoveryParserT e s m) where
     fmap f x = RecoveryParserT (f <$> unRecoveryParser x)
 
-instance (Ord e, Stream s, Monad m) => Applicative (RecoveryParserT c e s m) where
+instance (Ord e, Stream s, Monad m) => Applicative (RecoveryParserT e s m) where
     l <*> r = RecoveryParserT (unRecoveryParser l <*> unRecoveryParser r)
     pure x = RecoveryParserT $ pure x
 
-instance (Ord e, Stream s, Monad m) => Monad (RecoveryParserT c e s m) where
+instance (Ord e, Stream s, Monad m) => Monad (RecoveryParserT e s m) where
     x >>= f = RecoveryParserT (unRecoveryParser x >>= (unRecoveryParser . f))
 
-instance (Ord e, Stream s, Monad m) => Alternative (RecoveryParserT c e s m) where
+instance (Ord e, Stream s, Monad m) => Alternative (RecoveryParserT e s m) where
     l <|> r = RecoveryParserT (unRecoveryParser l <|> unRecoveryParser r)
     empty = RecoveryParserT empty
 
-instance (Ord e, Stream s, Monad m) => MonadPlus (RecoveryParserT c e s m) where
+instance (Ord e, Stream s, Monad m) => MonadPlus (RecoveryParserT e s m) where
    mzero = RecoveryParserT mzero
    mplus l r = RecoveryParserT $ mplus (unRecoveryParser l) (unRecoveryParser r)
 
-instance (Ord e, Stream s, Monad m) => MonadFail (RecoveryParserT c e s m) where
+instance (Ord e, Stream s, Monad m) => MonadFail (RecoveryParserT e s m) where
     fail s = RecoveryParserT $ fail s
 
-instance (Ord e, Stream s, Monad m) => MonadParsec e s (RecoveryParserT c e s m) where
+instance (Ord e, Stream s, Monad m) => MonadParsec e s (RecoveryParserT e s m) where
     parseError = RecoveryParserT . parseError
     label str pX = RecoveryParserT $ label str $ unRecoveryParser pX
     hidden pX = RecoveryParserT $ hidden $ unRecoveryParser pX
@@ -70,6 +70,7 @@ instance (Ord e, Stream s, Monad m) => MonadParsec e s (RecoveryParserT c e s m)
     takeP n c = RecoveryParserT $ takeP n c
     getParserState = RecoveryParserT getParserState
     updateParserState f = RecoveryParserT $ updateParserState f
+
 class MonadParsec e s m => MonadRecover e s m where
     -- | Parses the first parser, and then the second synchronisation parser. If the first parser fails to parse, tokens from the input stream will be dropped until second parser succeeds.
     -- | ConsumeRecoverOpt can be used to specify whether if, upon failure when no tokens have been consumed, the parser should try and recover. If it is being used within an Alternative, it should not as otherwise it will not try other alternates, and instead try to force usage of the given one.
@@ -80,20 +81,20 @@ class MonadParsec e s m => MonadRecover e s m where
     midRecover :: ConsumeRecoverOpt -> m a -> m sync -> m a
 
 
-buildJump :: Monad m => ((a -> RecoveryParserT c e s m b) -> RecoveryParserT c e s m a) -> RecoveryParserT c e s m a
+buildJump :: Monad m => ((a -> RecoveryParserT e s m b) -> RecoveryParserT e s m a) -> RecoveryParserT e s m a
 buildJump x = RecoveryParserT $ ParsecT $ \s cok cerr eok eerr -> let
         cont ret = RecoveryParserT (ParsecT $ \s' _ _ _ _ -> unsafeCoerce cok ret s' [])
     in
         unParser (unRecoveryParser $ x cont) s cok cerr eok eerr
 
-runRecoveryParser :: Monad m => RecoveryParserT (Either (ParseErrorBundle s e) a) e s m a -> String -> s -> m (Either (ParseErrorBundle s e) a)
+runRecoveryParser :: Monad m => RecoveryParserT e s m a -> String -> s -> m (Either (ParseErrorBundle s e) a)
 runRecoveryParser pX f s= runReaderT (runParserT (unRecoveryParser pX) f s) []
 
-runRecoveryParser' :: Monad m => RecoveryParserT (State s e, Either (ParseErrorBundle s e) a) e s m a -> State s e -> m (State s e, Either (ParseErrorBundle s e) a)
+runRecoveryParser' :: Monad m => RecoveryParserT e s m a -> State s e -> m (State s e, Either (ParseErrorBundle s e) a)
 runRecoveryParser' pX s = runReaderT (runParserT' (unRecoveryParser pX) s) []
 
 -- | Searches for the given synchronisation token. If it finds the token somewhere in the input stream then it will return True, and drop until after the found token. If it doesn't exist, it will return false at the point it finished searching.
-findSyncToken :: (Ord e, Stream s, Monad m) => ParseError s e -> RecoveryParserT c e s m a
+findSyncToken :: (Ord e, Stream s, Monad m) => ParseError s e -> RecoveryParserT e s m a
 findSyncToken err = do
     syncToks <- RecoveryParserT $ lift ask
     choice (fmap (\sync -> undefined <$ sync err) syncToks)
@@ -120,7 +121,7 @@ withRecovery' cRecF eRecF p = ParsecT $ \s cok cerr eok eerr ->
             in unParser (eRecF err) ms rcok rcerr reok reerr
     in unParser p s cok mcerr eok meerr
 
-instance (Eq s, Ord e, Monad m, Stream s) => MonadRecover e s (RecoveryParserT c e s m) where
+instance (Eq s, Ord e, Monad m, Stream s) => MonadRecover e s (RecoveryParserT e s m) where
     endRecover consumeOpt pX pSync def = buildJump $ \contF -> RecoveryParserT $
             local ((\err -> pSync >> registerParseError err >> contF def):) $
                 withRecovery' recoveryFunc eRecoveryFunc (unRecoveryParser pX <* unRecoveryParser pSync)
